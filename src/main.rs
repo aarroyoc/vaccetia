@@ -1,3 +1,6 @@
+use std::cmp::min;
+use bevy::input::ElementState;
+use bevy::input::mouse::MouseButtonInput;
 use bevy::prelude::*;
 use bevy_mod_raycast::*;
 
@@ -5,6 +8,12 @@ const GRID_SIZE: u32 = 1;
 
 #[derive(Component)]
 struct Pointer;
+
+#[derive(Component)]
+struct StartMarker;
+
+#[derive(Component)]
+struct MarkerWall;
 
 fn main() {
     App::new()
@@ -22,10 +31,13 @@ fn main() {
             CoreStage::PreUpdate,
             update_raycast.before(RaycastSystem::BuildRays)
         )
-        .add_system_to_stage(
+        .add_system_set_to_stage(
             CoreStage::PreUpdate,
-            update_pointer.after(RaycastSystem::BuildRays)
+            SystemSet::new()
+                .with_system(update_pointer.after(RaycastSystem::BuildRays))
+                .with_system(click_wall.after(RaycastSystem::BuildRays))
         )
+        .add_system(build_pre_walls)
         .run();
 }
 
@@ -48,7 +60,7 @@ fn setup(
         .insert(RayCastMesh::<RaycastSet>::default());
 
     // grid
-    let texture_grid = asset_server.load("grid.png");
+    /*let texture_grid = asset_server.load("grid.png");
     commands.spawn_bundle(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::Plane { size: 1.0})),
         material: materials.add(texture_grid.clone().into()),
@@ -61,7 +73,7 @@ fn setup(
         material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
         transform: Transform::from_xyz(0.0, 0.5, 0.0),
         ..Default::default()
-    });
+    });*/
 
     commands.spawn_bundle(PointLightBundle {
         point_light: PointLight {
@@ -105,6 +117,18 @@ fn setup(
         ..Default::default()
     })
         .insert(Pointer);
+
+    commands.spawn_bundle(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::Icosphere {
+            radius: 0.1,
+            subdivisions: 32
+        })),
+        material: materials.add(Color::rgb(0.1, 0.1, 1.0).into()),
+        visibility: Visibility {
+            is_visible: false
+        },
+        ..Default::default()
+    }).insert(StartMarker);
 }
 
 fn update_raycast(
@@ -123,22 +147,114 @@ fn update_raycast(
 
 fn update_pointer(
     mut query: Query<&mut RayCastSource<RaycastSet>>,
-    mut pointer: Query<&mut GlobalTransform, With<Pointer>>
+    mut pointer_query: Query<&mut GlobalTransform, With<Pointer>>,
 ) {
     for raycast_source in query.iter() {
         match raycast_source.intersect_top() {
             Some(intersection) => {
-                for mut transform in pointer.iter_mut() {
+                for mut transform_pointer in pointer_query.iter_mut() {
                     let position = intersection.1.position();
                     let position_fixed = Vec3::new(
                         position.x.round(),
                         position.y.round(),
                         position.z.round()
                     );
-                    transform.translation = position_fixed;
+                    transform_pointer.translation = position_fixed;
                 }
             }
             None => return
+        }
+    }
+}
+
+fn build_pre_walls(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    pointer_query: Query<&GlobalTransform, (With<Pointer>, Without<StartMarker>)>,
+    marker_query: Query<(&GlobalTransform, &Visibility), With<StartMarker>>,
+    marker_wall_query: Query<Entity, With<MarkerWall>>
+) {
+    for marker_wall in marker_wall_query.iter() {
+        commands.entity(marker_wall).despawn();
+    }
+    for (pointer) in pointer_query.iter() {
+        for (transform_marker, visibility_marker) in marker_query.iter() {
+            if visibility_marker.is_visible {
+                let (x, z) = manhattan_distance(transform_marker.translation, pointer.translation);
+                if x != 0.0 {
+                    let (min_x, max_x) = min_max(transform_marker.translation.x, transform_marker.translation.x + x);
+                    commands.spawn_bundle(PbrBundle {
+                        mesh: meshes.add(Mesh::from(shape::Box {
+                            min_x,
+                            max_x,
+                            min_y: -0.1,
+                            max_y: 0.1,
+                            min_z: transform_marker.translation.z - 0.1,
+                            max_z: transform_marker.translation.z + 0.1,
+                        })),
+                        material: materials.add(Color::rgb(0.1, 0.1, 1.0).into()),
+                        ..Default::default()
+                    }).insert(MarkerWall);
+                }
+                if z != 0.0 {
+                    let (min_x, max_x) = min_max(transform_marker.translation.x + x - 0.1, transform_marker.translation.x + x + 0.1);
+                    let (min_z, max_z) = min_max(transform_marker.translation.z, transform_marker.translation.z + z);
+                    commands.spawn_bundle(PbrBundle {
+                        mesh: meshes.add(Mesh::from(shape::Box {
+                            min_x,
+                            max_x,
+                            min_y: -0.1,
+                            max_y: 0.1,
+                            min_z,
+                            max_z,
+                        })),
+                        material: materials.add(Color::rgb(0.1, 0.1, 1.0).into()),
+                        ..Default::default()
+                    }).insert(MarkerWall);
+                }
+            }
+        }
+    }
+}
+
+fn min_max(
+    a: f32,
+    b: f32
+) -> (f32, f32) {
+    if a > b {
+        (b, a)
+    } else {
+        (a, b)
+    }
+}
+
+fn manhattan_distance(
+    origin: Vec3,
+    dest: Vec3
+) -> (f32, f32) {
+    (dest.x - origin.x, dest.z - origin.z)
+}
+
+fn click_wall(
+    mut events: EventReader<MouseButtonInput>,
+    mut pointer_query: Query<(&mut GlobalTransform), (With<Pointer>, Without<StartMarker>)>,
+    mut marker_query: Query<(&mut GlobalTransform, &mut Visibility), With<StartMarker>>
+) {
+    if let Some(event) = events.iter().last() {
+        if event.button == MouseButton::Left && event.state == ElementState::Released {
+            for (transform_pointer) in pointer_query.iter_mut() {
+                for (mut transform_marker, mut visibility_marker) in marker_query.iter_mut() {
+                    if visibility_marker.is_visible {
+                        visibility_marker.is_visible = false;
+                    } else {
+                        transform_marker.translation.x = transform_pointer.translation.x;
+                        transform_marker.translation.y = transform_pointer.translation.y;
+                        transform_marker.translation.z = transform_pointer.translation.z;
+                        visibility_marker.is_visible = true;
+                    }
+                }
+            }
         }
     }
 }
