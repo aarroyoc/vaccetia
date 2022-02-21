@@ -2,6 +2,9 @@ use bevy::input::mouse::MouseButtonInput;
 use bevy::input::ElementState;
 use bevy::prelude::*;
 use bevy_mod_raycast::*;
+use std::f32::consts::FRAC_PI_2;
+
+use crate::distance::*;
 
 #[derive(Component)]
 pub struct Pointer;
@@ -13,6 +16,8 @@ pub struct StartMarker;
 pub struct MarkerWall;
 
 pub struct RaycastSet;
+
+const MARKER_WIDTH: f32 = 0.1;
 
 pub fn setup(
     mut commands: Commands,
@@ -80,6 +85,10 @@ pub fn update_pointer(
 }
 
 pub fn click_wall(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut events: EventReader<MouseButtonInput>,
     mut pointer_query: Query<&mut GlobalTransform, (With<Pointer>, Without<StartMarker>)>,
     mut marker_query: Query<(&mut GlobalTransform, &mut Visibility), With<StartMarker>>,
@@ -90,6 +99,14 @@ pub fn click_wall(
                 for (mut transform_marker, mut visibility_marker) in marker_query.iter_mut() {
                     if visibility_marker.is_visible {
                         visibility_marker.is_visible = false;
+                        crate::wall::build_wall(
+                            &mut commands,
+                            &server,
+                            &mut meshes,
+                            &mut materials,
+                            transform_marker.translation,
+                            transform_pointer.translation,
+                        );
                     } else {
                         transform_marker.translation.x = transform_pointer.translation.x;
                         transform_marker.translation.y = transform_pointer.translation.y;
@@ -110,6 +127,7 @@ pub fn build_pre_walls(
     marker_query: Query<(&GlobalTransform, &Visibility), With<StartMarker>>,
     marker_wall_query: Query<Entity, With<MarkerWall>>,
 ) {
+    let material_prewall = materials.add(Color::rgb(0.1, 0.1, 1.0).into());
     for marker_wall in marker_wall_query.iter() {
         commands.entity(marker_wall).despawn();
     }
@@ -127,20 +145,20 @@ pub fn build_pre_walls(
                             mesh: meshes.add(Mesh::from(shape::Box {
                                 min_x,
                                 max_x,
-                                min_y: -0.1,
-                                max_y: 0.1,
-                                min_z: transform_marker.translation.z - 0.1,
-                                max_z: transform_marker.translation.z + 0.1,
+                                min_y: -MARKER_WIDTH,
+                                max_y: MARKER_WIDTH,
+                                min_z: transform_marker.translation.z - MARKER_WIDTH,
+                                max_z: transform_marker.translation.z + MARKER_WIDTH,
                             })),
-                            material: materials.add(Color::rgb(0.1, 0.1, 1.0).into()),
+                            material: material_prewall.clone(),
                             ..Default::default()
                         })
                         .insert(MarkerWall);
                 }
                 if z != 0.0 {
                     let (min_x, max_x) = min_max(
-                        transform_marker.translation.x + x - 0.1,
-                        transform_marker.translation.x + x + 0.1,
+                        transform_marker.translation.x + x - MARKER_WIDTH,
+                        transform_marker.translation.x + x + MARKER_WIDTH,
                     );
                     let (min_z, max_z) = min_max(
                         transform_marker.translation.z,
@@ -151,12 +169,32 @@ pub fn build_pre_walls(
                             mesh: meshes.add(Mesh::from(shape::Box {
                                 min_x,
                                 max_x,
-                                min_y: -0.1,
-                                max_y: 0.1,
+                                min_y: -MARKER_WIDTH,
+                                max_y: MARKER_WIDTH,
                                 min_z,
                                 max_z,
                             })),
-                            material: materials.add(Color::rgb(0.1, 0.1, 1.0).into()),
+                            material: material_prewall.clone(),
+                            ..Default::default()
+                        })
+                        .insert(MarkerWall);
+                }
+                if x != 0.0 && z != 0.0 {
+                    let min_x = transform_marker.translation.x + x - MARKER_WIDTH;
+                    let max_x = transform_marker.translation.x + x + MARKER_WIDTH;
+                    let min_z = transform_marker.translation.z - MARKER_WIDTH;
+                    let max_z = transform_marker.translation.z + MARKER_WIDTH;
+                    commands
+                        .spawn_bundle(PbrBundle {
+                            mesh: meshes.add(Mesh::from(shape::Box {
+                                min_x,
+                                max_x,
+                                min_y: -MARKER_WIDTH,
+                                max_y: MARKER_WIDTH,
+                                min_z,
+                                max_z,
+                            })),
+                            material: material_prewall.clone(),
                             ..Default::default()
                         })
                         .insert(MarkerWall);
@@ -164,16 +202,4 @@ pub fn build_pre_walls(
             }
         }
     }
-}
-
-fn min_max(a: f32, b: f32) -> (f32, f32) {
-    if a > b {
-        (b, a)
-    } else {
-        (a, b)
-    }
-}
-
-fn manhattan_distance(origin: Vec3, dest: Vec3) -> (f32, f32) {
-    (dest.x - origin.x, dest.z - origin.z)
 }

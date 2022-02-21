@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy_mod_raycast::*;
 
+mod distance;
 mod editor;
+mod wall;
 
 const GRID_SIZE: u32 = 1;
 
