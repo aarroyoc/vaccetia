@@ -32,6 +32,18 @@ pub fn build_wall(
                 })
                 .insert(Wall);
         }
+        for i in min_max_iter(origin.x, origin.x + x + 0.1) {
+            commands
+                .spawn_bundle((
+                    Transform::from_xyz(i, 0.0, origin.z)
+                        .with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
+                    GlobalTransform::identity(),
+                ))
+                .with_children(|parent| {
+                    parent.spawn_scene(column.clone());
+                })
+                .insert(Wall);
+        }
     }
     if z != 0.0 {
         for i in min_max_iter(origin.z, origin.z + z) {
@@ -45,17 +57,16 @@ pub fn build_wall(
                 })
                 .insert(Wall);
         }
-    }
-    // TODO: only checks for corners if they're built at the same time
-    if x != 0.0 && z != 0.0 {
-        commands
-            .spawn_bundle((
-                Transform::from_xyz(origin.x + x, 0.0, origin.z),
-                GlobalTransform::identity(),
-            ))
-            .with_children(|parent| {
-                parent.spawn_scene(column.clone());
-            })
-            .insert(Wall);
+        for i in min_max_iter(origin.z, origin.z + z + 0.1) {
+            commands
+                .spawn_bundle((
+                    Transform::from_xyz(origin.x + x, 0.0, i),
+                    GlobalTransform::identity(),
+                ))
+                .with_children(|parent| {
+                    parent.spawn_scene(column.clone());
+                })
+                .insert(Wall);
+        }
     }
 }
