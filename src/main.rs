@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_mod_raycast::*;
 
+mod camera;
 mod distance;
 mod editor;
 mod wall;
@@ -31,6 +32,7 @@ fn main() {
                 .with_system(editor::click_wall.after(RaycastSystem::BuildRays)),
         )
         .add_system(editor::build_pre_walls)
+        .add_system(camera::move_camera)
         .run();
 }
 
